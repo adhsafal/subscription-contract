@@ -1,6 +1,5 @@
 import "@stdlib/deploy";
 
-
 struct UserBalanceAndExpiry{
     balance: Int as uint64;
     expiryDate: Int as uint64;
@@ -26,13 +25,14 @@ contract SubscriptionContract with Deployable {
     owner: Address;
     userBalances: map<Address, Int as uint64>;
     totalBalance: Int as uint64;
+    userSubscriptionExpiry: map<Address, Int as uint64>;
 
 
     init() {
         self.owner = sender();
         self.userBalances = emptyMap();
         self.totalBalance = 0;
-
+        self.userSubscriptionExpiry = emptyMap();
     }
 
     fun onlyOwner(){
@@ -77,8 +77,9 @@ contract SubscriptionContract with Deployable {
         dump("Token deposit");
         require(context().value >= msg.amount, "Amount too less");
         let userStoredBalance: Int? = self.userBalances.get(sender());
-        self.addToUserBalance(msg.amount, sender());
+        self.addToUserBalanceAndExpiryDate(msg.amount, sender());
 
+        let userStoredExpiryDate: Int? = self.userSubscriptionExpiry.get(sender());
 
         emit(DepositEvent{
                 depositAmount: msg.amount, 
@@ -111,22 +112,26 @@ contract SubscriptionContract with Deployable {
         dump("Get User Balance and Subscription Expiry");
 
         let userBalance: Int? = self.userBalances.get(userAddress);
+        let userExpiryDate: Int? = self.userSubscriptionExpiry.get(userAddress);
 
         if(userBalance == null){
-            userBalance = 0
+            userBalance = 0;
+            userExpiryDate = 0;
         }
-        let subscriptionExpiry: Int = userBalance!! * self.MIN_SUBSCRIPTION;
-        return UserBalanceAndExpiry{balance: userBalance!!, expiryDate: now() + subscriptionExpiry,};  
+        return UserBalanceAndExpiry{balance: userBalance!!, expiryDate: now() + userExpiryDate!!};  
     }
 
-    fun addToUserBalance(depositedAmount: Int, depositedBy: Address) {
+    fun addToUserBalanceAndExpiryDate(depositedAmount: Int, depositedBy: Address) {
         let userStoredBalance: Int? = self.userBalances.get(depositedBy);
+        let userStoredExpiryDate: Int? = self.userSubscriptionExpiry.get(depositedBy);
 
         if (userStoredBalance != null) {
             self.userBalances.set(depositedBy, userStoredBalance!! + depositedAmount);
+            self.userSubscriptionExpiry.set(depositedBy, userStoredExpiryDate!! + depositedAmount * self.MIN_SUBSCRIPTION);
             self.totalBalance = self.totalBalance + depositedAmount;
         } else {
             self.userBalances.set(depositedBy, depositedAmount);
+            self.userSubscriptionExpiry.set(depositedBy, depositedAmount * self.MIN_SUBSCRIPTION);
             self.totalBalance = self.totalBalance + depositedAmount;
         }
     }
