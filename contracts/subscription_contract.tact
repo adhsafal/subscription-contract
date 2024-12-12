@@ -1,5 +1,8 @@
 import "@stdlib/deploy";
 
+@name(set_code)
+native setCode(code: Cell);
+
 struct UserBalanceAndExpiry{
     balance: Int as uint64;
     expiryDate: Int as uint64;
@@ -18,6 +21,9 @@ message DepositEvent {
     depositingAddress: Address;
 }
 
+message UpgradeCode {
+    newCode: Cell;
+}
 contract SubscriptionContract with Deployable {
     const MIN_TON_FOR_STORAGE: Int = ton("0.01");
     const MIN_SUBSCRIPTION: Int = 30 * 84600; 
@@ -27,7 +33,6 @@ contract SubscriptionContract with Deployable {
     totalBalance: Int as uint64;
     userSubscriptionExpiry: map<Address, Int as uint64>;
 
-
     init() {
         self.owner = sender();
         self.userBalances = emptyMap();
@@ -36,9 +41,14 @@ contract SubscriptionContract with Deployable {
     }
 
     fun onlyOwner(){
-        require(sender() == self.owner,"Only owner is allowed to withdraw.");
+        require(sender() == self.owner, "Only owner is allowed to withdraw.");
     }
       receive(){
+    }
+
+    receive(msg: UpgradeCode) {
+        self.onlyOwner();
+        setCode(msg.newCode);
     }
  
     receive("withdraw all"){
@@ -64,7 +74,21 @@ contract SubscriptionContract with Deployable {
     receive(msg: Withdraw){
         self.onlyOwner();
         let amount: Int = min(msg.amount, myBalance() - context().value - self.MIN_TON_FOR_STORAGE);
-        require(amount < 0 ,"Insufficient balance");
+        let userBalance: Int? = self.userBalances.get(sender());
+        let userStoredExpiryDate: Int? = self.userSubscriptionExpiry.get(sender());
+        
+         if (userBalance != null) {
+            require(userBalance!! >= msg.amount, "Insufficient balance");
+            if (userBalance!! - msg.amount > 0) {
+                self.userBalances.set(sender(), userBalance!! - msg.amount);
+                self.userSubscriptionExpiry.set(sender(), userStoredExpiryDate!! - msg.amount * self.MIN_SUBSCRIPTION)
+            } else {
+                self.userBalances.set(sender(), null);
+            }
+        } else {
+            require(false, "Insufficient balance");
+        }
+
         send(SendParameters{
             to:sender(),
             bounce:true,
